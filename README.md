@@ -1,6 +1,9 @@
 immix-rust
 ==========
 
+> This is a fork of https://gitlab.anu.edu.au/mu/immix-rust, which does not compile with current Rust/deps.
+> I have only tested that my changes work with the Rust API for this library, I may have accidentally broken the C API.
+
 An Immix implementation written in Rust.
 
 Features
