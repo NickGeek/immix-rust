@@ -11,6 +11,7 @@ extern crate libc;
 pub mod common;
 pub mod objectmodel;
 pub mod heap;
+mod gc_ref;
 
 pub use heap::immix::ImmixMutatorLocal as Mutator;
 use common::ObjectReference;
@@ -21,21 +22,12 @@ use heap::immix::ImmixMutatorLocal;
 use heap::freelist;
 use heap::freelist::FreeListSpace;
 use std::boxed::Box;
-
-#[repr(C)]
-pub struct GC {
-    immix_space: Arc<ImmixSpace>,
-    lo_space   : Arc<RwLock<FreeListSpace>>
-}
-
-lazy_static! {
-    pub static ref MY_GC : RwLock<Option<GC>> = RwLock::new(None);
-}
+use gc_ref::{GC, MY_GC};
 
 #[no_mangle]
 pub extern fn gc_init(immix_size: usize, lo_size: usize, n_gcthreads: usize) {
     // set this line to turn on certain level of debugging info
-//    simple_logger::init_with_level(log::LogLevel::Trace).ok();
+   // simple_logger::init_with_level(log::LogLevel::Trace).ok();
     
     // init space size
     heap::IMMIX_SPACE_SIZE.store(immix_size, Ordering::SeqCst);
@@ -105,6 +97,7 @@ pub extern fn alloc_slow(mutator: &mut Box<ImmixMutatorLocal>, size: usize, alig
 
 #[no_mangle]
 pub extern fn alloc_large(mutator: &mut Box<ImmixMutatorLocal>, size: usize) -> ObjectReference {
-    let ret = freelist::alloc_large(size, 8, mutator, MY_GC.read().unwrap().as_ref().unwrap().lo_space.clone());
+    // Safety: Safe because alignment will prevent a 0 byte allocation
+    let ret = unsafe { freelist::alloc_large(size, 8, mutator, MY_GC.read().unwrap().as_ref().unwrap().lo_space.clone()) };
     unsafe {ret.to_object_reference()}
 }

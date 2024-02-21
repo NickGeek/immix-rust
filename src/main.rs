@@ -1,11 +1,13 @@
 #![allow(dead_code)]
 use std::env;
 use std::sync::atomic::Ordering;
+use immix_rust::gc_init;
 
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
 extern crate log;
+extern crate immix_rust;
 
 mod common;
 mod objectmodel;
@@ -18,6 +20,7 @@ mod mt_trace;
 mod gcbench;
 mod mt_gcbench;
 mod obj_init;
+mod gc_ref;
 
 fn init() {
     objectmodel::init();
@@ -26,19 +29,23 @@ fn init() {
 fn main() {
     use heap;
     init();
-    
+
+    let mut immix_space_size = 0;
+    let mut lo_space_size = 0;
+    let mut gc_threads = 8;
+
     match env::var("HEAP_SIZE") {
         Ok(val) => {
             if val.ends_with("M") {
                 let (num, _) = val.split_at(val.len() - 1);
                 let heap_size = num.parse::<usize>().unwrap() << 20;
                 
-                let immix_space_size : usize = (heap_size as f64 * heap::IMMIX_SPACE_RATIO) as usize;
+                immix_space_size = (heap_size as f64 * heap::IMMIX_SPACE_RATIO) as usize;
                 heap::IMMIX_SPACE_SIZE.store(immix_space_size, Ordering::SeqCst);
                 
-                let lo_space_size : usize = (heap_size as f64 * heap::LO_SPACE_RATIO) as usize;
+                lo_space_size = (heap_size as f64 * heap::LO_SPACE_RATIO) as usize;
                 heap::LO_SPACE_SIZE.store(lo_space_size, Ordering::SeqCst);
-                 
+
                 println!("heap is {} bytes (immix: {} bytes, lo: {} bytes) . ", heap_size, immix_space_size, lo_space_size);
             } else {
                 println!("unknow heap size variable: {}, ignore", val);
@@ -52,12 +59,15 @@ fn main() {
     
     match env::var("N_GCTHREADS") {
         Ok(val) => {
-            heap::gc::GC_THREADS.store(val.parse::<usize>().unwrap(), Ordering::SeqCst);
+            gc_threads = val.parse::<usize>().unwrap();
+            heap::gc::GC_THREADS.store(gc_threads, Ordering::SeqCst);
         },
         Err(_) => {
-            heap::gc::GC_THREADS.store(8, Ordering::SeqCst);
+            heap::gc::GC_THREADS.store(gc_threads, Ordering::SeqCst);
         }
     }
+
+    gc_init(immix_space_size, lo_space_size, gc_threads);
     
     if cfg!(feature = "exhaust") {
         exhaust::exhaust_alloc();

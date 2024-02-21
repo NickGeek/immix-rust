@@ -178,7 +178,7 @@ pub fn sync_barrier(mutator: &mut ImmixMutatorLocal) {
         
         // mutators will resume
         CONTROLLER.store(NO_CONTROLLER, Ordering::SeqCst);
-        for mut t in MUTATORS.write().unwrap().iter_mut() {
+        for t in MUTATORS.write().unwrap().iter_mut() {
             if t.is_some() {
                 let t_mut = t.as_mut().unwrap();
                 t_mut.set_take_yield(false);

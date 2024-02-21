@@ -141,7 +141,8 @@ pub fn start() {
     Populate(kLongLivedTreeDepth, longLivedTree, &mut mutator);
     
     println!(" Creating a long-lived array of {} doubles", kArraySize);
-    freelist::alloc_large(size_of::<Array>(), 8, &mut mutator, lo_space.clone());
+    // Safety: Safe because alignment prevents a 0 byte allocation
+    unsafe { freelist::alloc_large(size_of::<Array>(), 8, &mut mutator, lo_space.clone()) };
     
     PrintDiagnostics();
     

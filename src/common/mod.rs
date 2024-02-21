@@ -131,6 +131,7 @@ impl fmt::Debug for Address {
     }
 }
 
+// TODO: this should probably be repr(transparent)
 #[derive(Copy, Clone, Eq, Hash)]
 pub struct ObjectReference (usize);
 

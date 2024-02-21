@@ -1,15 +1,15 @@
-use heap::immix;
-use heap::immix::ImmixSpace;
-use heap::immix::immix_space::ImmixBlock;
-use heap::gc;
-
-use common::LOG_POINTER_SIZE;
-use common::Address;
-
 use std::*;
 use std::sync::Arc;
-use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::RwLock;
+
+use common::Address;
+use common::LOG_POINTER_SIZE;
+use gc_ref::MY_GC;
+use heap::{freelist, immix};
+use heap::gc;
+use heap::immix::immix_space::ImmixBlock;
+use heap::immix::ImmixSpace;
 
 const MAX_MUTATORS : usize = 1024;
 lazy_static! {
@@ -121,6 +121,11 @@ impl ImmixMutatorLocal {
     
     #[inline(always)]
     pub fn alloc(&mut self, size: usize, align: usize) -> Address {
+        if size > 256 {
+            // Safety: Safe because alignment will prevent a 0 byte allocation
+            return unsafe { freelist::alloc_large(size, 8, self, MY_GC.read().unwrap().as_ref().unwrap().lo_space.clone()) };
+        }
+
         // println!("Fastpath allocation");
         let start = self.cursor.align_up(align);
         let end = start.plus(size);

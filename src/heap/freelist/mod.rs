@@ -1,11 +1,12 @@
+use std::alloc::Layout;
 use common::Address;
 use heap::immix;
-
-extern crate aligned_alloc;
 
 use std::collections::LinkedList;
 use std::sync::Arc;
 use std::sync::RwLock;
+
+const INVALID_LAYOUT_ERROR: &str = "Invalid memory layout";
 
 pub struct FreeListSpace {
     current_nodes : LinkedList<Box<FreeListNode>>,
@@ -29,16 +30,21 @@ impl FreeListSpace {
     pub fn mark(&mut self, obj: Address) {
         
     }
-    
-    pub fn alloc(&mut self, size: usize, align: usize) -> Option<Address> {
+
+    /// # Safety
+    /// UB if the size of the allocation is zero
+    pub unsafe fn alloc(&mut self, size: usize, align: usize) -> Option<Address> {
         if self.used_bytes + size > self.size {
             None
         } else {
-            let ret = self::aligned_alloc::aligned_alloc(size, align);
+            // It would be nice to avoid the branch here, but the non-optional variant is not public
+            let layout = Layout::from_size_align(size, align).expect(INVALID_LAYOUT_ERROR);
+            debug_assert!(layout.size() > 0);
+            let ret = std::alloc::alloc(layout);
+
+            let addr = Address::from_ptr::<()>(ret as *const ());
             
-            let addr = Address::from_ptr::<()>(ret);
-            
-            self.current_nodes.push_front(Box::new(FreeListNode{id: self.node_id, start: addr, size: size, mark: NodeMark::FreshAlloc}));
+            self.current_nodes.push_front(Box::new(FreeListNode{id: self.node_id, start: addr, layout, mark: NodeMark::FreshAlloc}));
             self.node_id += 1;
             self.used_bytes += size;
             
@@ -57,13 +63,13 @@ impl FreeListSpace {
                 match node.mark {
                     NodeMark::Live => {
                         node.set_mark(NodeMark::PrevLive);
-                        used_bytes += node.size;
+                        used_bytes += node.size();
                         ret.push_back(node);
                     },
                     NodeMark::PrevLive | NodeMark::FreshAlloc => {
                         let ptr = node.start.to_ptr::<()>() as *mut ();
                         // free the memory
-                        unsafe {self::aligned_alloc::aligned_free(ptr);}
+                        unsafe {std::alloc::dealloc(ptr as *mut u8, node.layout);}
                         // do not add this node into new linked list
                     }
                 }
@@ -86,14 +92,17 @@ impl FreeListSpace {
 
 pub struct FreeListNode {
     id: usize,
-    start : Address,
-    size  : usize,
-    mark  : NodeMark
+    start: Address,
+    layout: Layout,
+    mark: NodeMark,
 }
 
 impl FreeListNode {
     pub fn set_mark(&mut self, mark: NodeMark) {
         self.mark = mark;
+    }
+    fn size(&self) -> usize {
+        self.layout.size()
     }
 }
 
@@ -105,8 +114,11 @@ pub enum NodeMark {
 }
 unsafe impl Sync for NodeMark {}
 
+/// # Safety
+/// UB if the size of the allocation + alignment is zero
 #[inline(never)]
-pub fn alloc_large(size: usize, align: usize, mutator: &mut immix::ImmixMutatorLocal, space: Arc<RwLock<FreeListSpace>>) -> Address {
+#[cold]
+pub unsafe fn alloc_large(size: usize, align: usize, mutator: &mut immix::ImmixMutatorLocal, space: Arc<RwLock<FreeListSpace>>) -> Address {
     loop {
         mutator.yieldpoint();
         
@@ -145,6 +157,6 @@ impl fmt::Display for FreeListSpace {
 
 impl fmt::Display for FreeListNode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "FreeListNode#{}(start={:#X}, size={}, state={:?})", self.id, self.start, self.size, self.mark)
+        write!(f, "FreeListNode#{}(start={:#X}, size={}, align={:?}, state={:?})", self.id, self.start, self.size(), self.layout.align(), self.mark)
     }
 }
